@@ -1,0 +1,12 @@
+/* File: src/index.css */
+:root { --primary: #4CAF50; --danger: #f44336; --bg: #f4f7f6; }
+body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+.container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+.form-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+input, select, button { padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+button { background: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; transition: background 0.3s; }
+button:hover { background: #45a049; }
+table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+th { background: #2c3e50; color: white; }
+.low-stock { background: #ffebee; color: var(--danger); font-weight: bold; }

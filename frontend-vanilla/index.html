@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Manajemen Stok Dapur</title>
+    <style>
+        :root { --primary: #4CAF50; --danger: #f44336; --bg: #f4f7f6; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .form-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        input, select, button { padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #45a049; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background: #2c3e50; color: white; }
+        .low-stock { background: #ffebee; color: var(--danger); font-weight: bold; }
+        
+        /* Utility Classes */
+        .hidden { display: none !important; }
+        .admin-only { display: none; } /* Akan ditampilkan via JS jika rolenya admin */
+        .header-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }
+        #authScreen { max-width: 400px; margin: 100px auto; text-align: center; }
+        #authScreen input, #authScreen select, #authScreen button { width: 100%; margin-bottom: 10px; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+
+<div id="authScreen" class="container">
+    <h2>🔐 Gerbang Dapur</h2>
+    <p id="authMessage" style="color: red;"></p>
+
+    <form id="loginForm">
+        <input type="text" id="loginUser" placeholder="Username" required>
+        <input type="password" id="loginPass" placeholder="Password" required>
+        <button type="submit">Masuk</button>
+    </form>
+
+    <hr style="margin: 20px 0;">
+    
+    <h4>Belum punya akun? Buat di sini</h4>
+    <form id="registerForm">
+        <input type="text" id="regUser" placeholder="Username Baru" required>
+        <input type="password" id="regPass" placeholder="Password Baru" required>
+        <select id="regRole">
+            <option value="admin">Admin (Bisa semua)</option>
+            <option value="staff">Staff (Hanya catat transaksi)</option>
+        </select>
+        <button type="submit" style="background: #2196F3;">Daftar Akun</button>
+    </form>
+</div>
+
+<div id="mainDashboard" class="container hidden">
+    <div class="header-bar">
+        <h2>👨‍🍳 Sistem Manajemen Stok Dapur</h2>
+        <div>
+            <span id="userInfo" style="font-weight: bold; margin-right: 15px;"></span>
+            <button onclick="logout()" style="background: var(--danger);">Logout</button>
+        </div>
+    </div>
+
+    <div class="admin-only" id="adminArea">
+        <h3>Tambah Bahan Masakan Baru (Khusus Admin)</h3>
+        <form id="ingredientForm" class="form-group">
+            <input type="text" id="ingName" placeholder="Nama Bahan" required>
+            <input type="text" id="ingUnit" placeholder="Satuan" required>
+            <input type="number" id="ingMinStock" placeholder="Min Stok" required min="0">
+            <button type="submit">+ Tambah Bahan</button>
+        </form>
+        <hr>
+    </div>
+
+    <h3>Catat Barang Masuk / Keluar</h3>
+    <form id="transactionForm" class="form-group">
+        <select id="transIngredient" required></select>
+        <select id="transType" required>
+            <option value="IN">Masuk (IN) 📥</option>
+            <option value="OUT">Keluar (OUT) 📤</option>
+        </select>
+        <input type="number" id="transQty" placeholder="Jumlah" required min="1">
+        <button type="submit">Catat Transaksi</button>
+    </form>
+
+    <h3>Data Stok Terkini</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Bahan</th><th>Stok</th><th>Satuan</th><th>Min</th><th>Status</th>
+                <th class="admin-only" id="thAksi">Aksi</th>
+            </tr>
+        </thead>
+        <tbody id="stockTableBody"></tbody>
+    </table>
+</div>
+
+<script>
+    const API_URL = 'http://localhost:3000/api';
+    
+    // Mengecek apakah sudah login
+    let token = localStorage.getItem('token');
+    let userRole = localStorage.getItem('role');
+    let username = localStorage.getItem('username');
+
+    // FUNGSI UTAMA (Helper) untuk melakukan Fetch dengan Header Authorization
+    async function fetchWithAuth(url, options = {}) {
+        if (!options.headers) options.headers = {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+        
+        const response = await fetch(url, options);
+        // Jika token tidak valid / kadaluarsa, tendang ke login
+        if (response.status === 401 || response.status === 403) {
+            alert(await response.text());
+            if(response.status === 401) logout(); 
+            throw new Error('Akses ditolak');
+        }
+        return response;
+    }
+
+    // TAMPILAN AWAL
+    function checkAuth() {
+        if (token) {
+            document.getElementById('authScreen').classList.add('hidden');
+            document.getElementById('mainDashboard').classList.remove('hidden');
+            document.getElementById('userInfo').textContent = `Halo, ${username} (${userRole})`;
+            
+            // PERBAIKAN LOGIKA: Tampilkan jika admin, Sembunyikan jika bukan
+            if (userRole === 'admin') {
+                document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
+                document.getElementById('adminArea').style.display = 'block';
+                document.getElementById('thAksi').style.display = 'table-cell';
+            } else {
+                // Ini yang sebelumnya terlewat! Kita harus meresetnya jadi 'none'
+                document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+                document.getElementById('adminArea').style.display = 'none';
+                document.getElementById('thAksi').style.display = 'none';
+            }
+            
+            fetchStockData();
+        } else {
+            document.getElementById('authScreen').classList.remove('hidden');
+            document.getElementById('mainDashboard').classList.add('hidden');
+        }
+    }
+
+    // LOGIN
+    document.getElementById('loginForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const payload = {
+            username: document.getElementById('loginUser').value,
+            password: document.getElementById('loginPass').value
+        };
+        try {
+            const res = await fetch(`${API_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                // Simpan data ke memori browser
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('role', data.user.role);
+                localStorage.setItem('username', data.user.username);
+                token = data.token; userRole = data.user.role; username = data.user.username;
+                checkAuth();
+            } else {
+                document.getElementById('authMessage').textContent = data.error;
+            }
+        } catch (err) { console.error(err); }
+    };
+
+    // REGISTER
+    document.getElementById('registerForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const payload = {
+            username: document.getElementById('regUser').value,
+            password: document.getElementById('regPass').value,
+            role: document.getElementById('regRole').value
+        };
+        const res = await fetch(`${API_URL}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        alert(data.message || data.error);
+        if (res.ok) document.getElementById('registerForm').reset();
+    };
+
+    // LOGOUT
+    function logout() {
+        localStorage.clear();
+        token = null; userRole = null; username = null;
+        checkAuth();
+    }
+
+    // LOAD DATA DATA STOK
+    async function fetchStockData() {
+        try {
+            const res = await fetchWithAuth(`${API_URL}/ingredients`);
+            const data = await res.json();
+            
+            const tbody = document.getElementById('stockTableBody');
+            const select = document.getElementById('transIngredient');
+            tbody.innerHTML = ''; select.innerHTML = '<option value="">-- Pilih Bahan --</option>';
+
+            data.forEach(item => {
+                const isLow = parseInt(item.current_stock) <= item.min_stock;
+                
+                // Render Tabel
+                const row = document.createElement('tr');
+                if (isLow) row.className = 'low-stock';
+                
+                let html = `
+                    <td>${item.name}</td>
+                    <td><b>${item.current_stock}</b></td>
+                    <td>${item.unit}</td><td>${item.min_stock}</td>
+                    <td>${isLow ? '⚠️ Kritis' : '✅ Aman'}</td>
+                `;
+                
+                // Tambahkan tombol hapus HANYA jika Admin
+                if (userRole === 'admin') {
+                    html += `<td style="display:table-cell" class="admin-only"><button onclick="deleteIngredient(${item.id})" style="background:var(--danger); padding:5px">Hapus</button></td>`;
+                }
+
+                row.innerHTML = html;
+                tbody.appendChild(row);
+
+                // Render Dropdown
+                select.innerHTML += `<option value="${item.id}">${item.name} (${item.current_stock} ${item.unit})</option>`;
+            });
+        } catch (err) { console.error(err); }
+    }
+
+    // TAMBAH BAHAN
+    document.getElementById('ingredientForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const payload = {
+            name: document.getElementById('ingName').value,
+            unit: document.getElementById('ingUnit').value,
+            min_stock: document.getElementById('ingMinStock').value
+        };
+        await fetchWithAuth(`${API_URL}/ingredients`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        document.getElementById('ingredientForm').reset();
+        fetchStockData();
+    };
+
+    // CATAT TRANSAKSI
+    document.getElementById('transactionForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const payload = {
+            ingredient_id: document.getElementById('transIngredient').value,
+            type: document.getElementById('transType').value,
+            quantity: document.getElementById('transQty').value
+        };
+        await fetchWithAuth(`${API_URL}/transactions`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        document.getElementById('transactionForm').reset();
+        fetchStockData();
+    };
+
+    // HAPUS BAHAN
+    async function deleteIngredient(id) {
+        if (confirm("Yakin hapus bahan ini beserta riwayatnya?")) {
+            await fetchWithAuth(`${API_URL}/ingredients/${id}`, { method: 'DELETE' });
+            fetchStockData();
+        }
+    }
+
+    // Jalankan pengecekan auth saat pertama buka
+    checkAuth();
+</script>
+</body>
+</html>
